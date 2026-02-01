@@ -63,3 +63,4 @@ D:\PickAnalizer\obj\Debug\net8.0-windows\refint\FloridaLotteryApp.dll
 D:\PickAnalizer\obj\Debug\net8.0-windows\FloridaLotteryApp.pdb
 D:\PickAnalizer\obj\Debug\net8.0-windows\FloridaLotteryApp.genruntimeconfig.cache
 D:\PickAnalizer\obj\Debug\net8.0-windows\ref\FloridaLotteryApp.dll
+D:\PickAnalizer\obj\Debug\net8.0-windows\FloridaLotteryApp.sourcelink.json

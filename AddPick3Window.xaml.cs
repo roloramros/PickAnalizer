@@ -7,6 +7,8 @@ namespace FloridaLotteryApp;
 
 public partial class AddPick3Window : Window
 {
+    public event EventHandler? RecordSaved;
+
     public AddPick3Window()
     {
         InitializeComponent();
@@ -85,6 +87,8 @@ public partial class AddPick3Window : Window
 
             // Opcional: Mantener el foco en el primer campo para siguiente entrada
             TxtPick3Number.Focus();
+
+            RecordSaved?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)
         {

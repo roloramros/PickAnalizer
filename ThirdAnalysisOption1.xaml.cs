@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using System.Threading.Tasks;
 using FloridaLotteryApp.Data;
 
 namespace FloridaLotteryApp;
@@ -14,12 +15,13 @@ namespace FloridaLotteryApp;
 public partial class ThirdAnalysisOption1 : Window
 {
     private ThirdAnalysisCardVM? _currentCard;
-    private List<FilteredCodificacion> _filteredCodificaciones;
+    private List<ThirdAnalysisCardVM> _matchedCards = new();
     private int _currentIndex = 0;
 
     public ThirdAnalysisOption1()
     {
         InitializeComponent();
+        InitializeEventHandlers();
     }
 
     private void InitializeEventHandlers()
@@ -34,145 +36,160 @@ public partial class ThirdAnalysisOption1 : Window
         _currentCard = card;
 
         SearchTab.IsSelected = true;
-        LoadFilteredCodificaciones();
-        // Mostrar la primera codificación
-        if (_filteredCodificaciones.Count > 0)
-        {
-            DisplayCodificacion(_currentIndex);
-        }
-        
-        UpdateNavigationButtons();
+        InitializeEventHandlers();
+        Loaded += ThirdAnalysisOption1_Loaded;
 
         LoadCard(card);
         
        
     }
 
-    private void LoadFilteredCodificaciones()
+    private async void ThirdAnalysisOption1_Loaded(object sender, RoutedEventArgs e)
+    {
+        Loaded -= ThirdAnalysisOption1_Loaded;
+        await LoadFilteredCodificacionesAsync();
+    }
+
+    private async Task LoadFilteredCodificacionesAsync()
     {
         try
         {
-            _filteredCodificaciones = DrawRepository.GetCodificacionesWithSingleCommonDigit();
-            
-            // Actualizar contador de resultados
-            ResultsCounter.Text = $"Resultados: {_filteredCodificaciones.Count} encontrados";
+            ShowProgress(true, "Cargando codificaciones...");
+            ResultsProgress.IsIndeterminate = true;
+
+            var codificaciones = await Task.Run(
+                () => DrawRepository.GetCodificacionesWithSingleCommonDigit());
+
+            var guidePattern = BuildGuidePattern();
+            if (guidePattern == null)
+            {
+                ResultsCounter.Text = "Resultados: 0 encontrados";
+                return;
+            }
+
+            var guidePick3RepeatPattern = BuildPick3RepeatPattern(
+                DigitsToString(_currentCard.Row1Pick3Digits),
+                DigitsToString(_currentCard.Row3Pick3Digits));
+
+            if (guidePick3RepeatPattern == null)
+            {
+                ResultsCounter.Text = "Resultados: 0 encontrados";
+                return;
+            }
+
+            ResultsProgress.IsIndeterminate = false;
+            ResultsProgress.Minimum = 0;
+            ResultsProgress.Maximum = codificaciones.Count;
+            ResultsProgress.Value = 0;
+            ShowProgress(true, $"Procesando 0 de {codificaciones.Count}...");
+
+            IProgress<int> progress = new System.Progress<int>(value =>
+            {
+                ResultsProgress.Value = value;
+                ResultsProgressText.Text = $"Procesando {value} de {codificaciones.Count}...";
+            });
+
+            var matched = await Task.Run(() =>
+            {
+                var results = new List<ThirdAnalysisCardVM>();
+                int processed = 0;
+
+                foreach (var codificacion in codificaciones)
+                {
+                    var pairCard = BuildAnalysisPairCard(guidePattern, codificacion);
+                    var guidePositions = GetRepeatedDigitPositions(
+                        guidePattern.Pick3Value,
+                        guidePattern.Pick4Value);
+                    var resultPositions = GetRepeatedDigitPositions(
+                        codificacion.Pick3,
+                        codificacion.Pick4);
+
+                    var cards = ThirdAnalysisCardVM.CreateMultipleFrom(
+                        pairCard,
+                        guidePositions,
+                        resultPositions);
+
+                    foreach (var card in cards)
+                    {
+                        if (MatchesGuideCounters(card) && MatchesPick3RepeatPattern(card, guidePick3RepeatPattern))
+                        {
+                            results.Add(card);
+                        }
+                    }
+
+                    processed++;
+                    if (processed % 10 == 0)
+                    {
+                        progress.Report(processed);
+                    }
+                }
+
+                progress.Report(processed);
+                return results;
+            });
+
+            _matchedCards = matched;
+            ResultsCounter.Text = $"Resultados: {_matchedCards.Count} encontrados";
+
+            if (_matchedCards.Count > 0)
+            {
+                DisplayMatchCard(_currentIndex);
+            }
+
+            UpdateNavigationButtons();
         }
         catch (Exception ex)
         {
             MessageBox.Show($"Error al cargar codificaciones: {ex.Message}", "Error", 
                 MessageBoxButton.OK, MessageBoxImage.Error);
-            _filteredCodificaciones = new List<FilteredCodificacion>();
+            _matchedCards = new List<ThirdAnalysisCardVM>();
+        }
+        finally
+        {
+            ShowProgress(false, string.Empty);
         }
     }
 
-    private void DisplayCodificacion(int index)
+    private void ShowProgress(bool isVisible, string message)
     {
-        if (index < 0 || index >= _filteredCodificaciones.Count)
+        var visibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
+        ResultsProgress.Visibility = visibility;
+        ResultsProgressText.Visibility = visibility;
+        ResultsProgressText.Text = message;
+    }
+
+    private void DisplayMatchCard(int index)
+    {
+        if (index < 0 || index >= _matchedCards.Count)
             return;
 
-        var codificacion = _filteredCodificaciones[index];
-        
-        // Mostrar en la fila 3 (SearchRow3)
-        SearchRow3DateText.Text = codificacion.Date.ToString("yyyy-MM-dd");
-        SearchRow3DrawIcon.Text = codificacion.DrawTime == "M" ? "☀️" : "🌙";
-        
-        // Mostrar Pick3 en SearchRow3Pick3Items
-        var pick3Digits = new ObservableCollection<DigitVM>();
-        foreach (char digit in codificacion.Pick3)
-        {
-            pick3Digits.Add(new DigitVM 
-            { 
-                Value = digit.ToString(), 
-                Bg = new SolidColorBrush(Colors.White) 
-            });
-        }
-        SearchRow3Pick3Items.ItemsSource = pick3Digits;
-        
-        // Mostrar Pick4 en SearchRow3Pick4Items
-        var pick4Digits = new ObservableCollection<DigitVM>();
-        foreach (char digit in codificacion.Pick4)
-        {
-            pick4Digits.Add(new DigitVM 
-            { 
-                Value = digit.ToString(), 
-                Bg = new SolidColorBrush(Colors.White) 
-            });
-        }
-        SearchRow3Pick4Items.ItemsSource = pick4Digits;
-        
-        // Mostrar NextPick3 en SearchRow3NextPick3Items
-        var nextPick3Digits = new ObservableCollection<DigitVM>();
-        foreach (char digit in codificacion.NextPick3)
-        {
-            nextPick3Digits.Add(new DigitVM 
-            { 
-                Value = digit.ToString(), 
-                Bg = new SolidColorBrush(Colors.White) 
-            });
-        }
-        SearchRow3NextPick3Items.ItemsSource = nextPick3Digits;
-        
-        // Mostrar la UNIÓN DE DÍGITOS ÚNICOS de Pick3 y Pick4, ordenados de menor a mayor
-        var codingDigits = new ObservableCollection<DigitVM>();
-        
-        // Obtener todos los dígitos de Pick3 y Pick4
-        var allDigits = codificacion.Pick3 + codificacion.Pick4;
-        
-        // Convertir a números, eliminar duplicados, ordenar
-        var uniqueSortedDigits = allDigits
-            .Select(c => int.Parse(c.ToString()))
-            .Distinct()
-            .OrderBy(d => d)
-            .Select(d => d.ToString())
-            .ToList();
-        
-        // Asegurarse de que tenemos 6 dígitos (rellenar con espacios si no)
-        while (uniqueSortedDigits.Count < 6)
-        {
-            uniqueSortedDigits.Add("");
-        }
-        
-        // Tomar solo los primeros 6 dígitos (por si hay más de 6 únicos)
-        uniqueSortedDigits = uniqueSortedDigits.Take(6).ToList();
-        
-        foreach (string digit in uniqueSortedDigits)
-        {
-            codingDigits.Add(new DigitVM 
-            { 
-                Value = digit, 
-                Bg = new SolidColorBrush(Colors.White) 
-            });
-        }
-        
-        SearchRow3CodingItems.ItemsSource = codingDigits;
-        
-        // Actualizar índice actual
+        var card = _matchedCards[index];
+        LoadSearchCard(card);
+
         _currentIndex = index;
-        
-        // Actualizar contador de navegación
-        ResultsCounter.Text = $"Resultado {_currentIndex + 1} de {_filteredCodificaciones.Count}";
+        ResultsCounter.Text = $"Resultado {_currentIndex + 1} de {_matchedCards.Count}";
     }
 
     private void UpdateNavigationButtons()
     {
         PreviousButton.IsEnabled = _currentIndex > 0;
-        NextButton.IsEnabled = _currentIndex < _filteredCodificaciones.Count - 1;
+        NextButton.IsEnabled = _currentIndex < _matchedCards.Count - 1;
     }
 
     private void PreviousButton_Click(object sender, RoutedEventArgs e)
     {
         if (_currentIndex > 0)
         {
-            DisplayCodificacion(_currentIndex - 1);
+            DisplayMatchCard(_currentIndex - 1);
             UpdateNavigationButtons();
         }
     }
 
     private void NextButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentIndex < _filteredCodificaciones.Count - 1)
+        if (_currentIndex < _matchedCards.Count - 1)
         {
-            DisplayCodificacion(_currentIndex + 1);
+            DisplayMatchCard(_currentIndex + 1);
             UpdateNavigationButtons();
         }
     }
@@ -227,33 +244,259 @@ public partial class ThirdAnalysisOption1 : Window
         }
     }
 
+    private void LoadSearchCard(ThirdAnalysisCardVM card)
+    {
+        SearchRow1DateText.Text = card.Row1DateText;
+        SearchRow1DrawIcon.Text = card.Row1DrawIcon;
+        SearchRow1Pick3Items.ItemsSource = CopyDigitCollection(card.Row1Pick3Digits);
+        SearchRow1Pick4Items.ItemsSource = CopyDigitCollection(card.Row1Pick4Digits);
+        SearchRow1NextPick3Items.ItemsSource = CopyDigitCollection(card.Row1NextPick3Digits);
+        SearchRow1CodingItems.ItemsSource = CopyDigitCollection(card.Row1CodingDigits);
+
+        SearchRow2DateText.Text = card.Row2DateText;
+        SearchRow2DrawIcon.Text = card.Row2DrawIcon;
+        SearchRow2Pick3Items.ItemsSource = CopyDigitCollection(card.Row2Pick3Digits);
+        SearchRow2Pick4Items.ItemsSource = CopyDigitCollection(card.Row2Pick4Digits);
+        SearchRow2NextPick3Items.ItemsSource = CopyDigitCollection(card.Row2NextPick3Digits);
+        SearchRow2CodingItems.ItemsSource = CopyDigitCollection(card.Row2CodingDigits);
+
+        SearchRow3DateText.Text = card.Row3DateText;
+        SearchRow3DrawIcon.Text = card.Row3DrawIcon;
+        SearchRow3Pick3Items.ItemsSource = CopyDigitCollection(card.Row3Pick3Digits);
+        SearchRow3Pick4Items.ItemsSource = CopyDigitCollection(card.Row3Pick4Digits);
+        SearchRow3NextPick3Items.ItemsSource = CopyDigitCollection(card.Row3NextPick3Digits);
+        SearchRow3CodingItems.ItemsSource = CopyDigitCollection(card.Row3CodingDigits);
+
+        SearchRow4DateText.Text = card.Row4DateText;
+        SearchRow4DrawIcon.Text = card.Row4DrawIcon;
+        SearchRow4Pick3Items.ItemsSource = CopyDigitCollection(card.Row4Pick3Digits);
+        SearchRow4Pick4Items.ItemsSource = CopyDigitCollection(card.Row4Pick4Digits);
+        SearchRow4NextPick3Items.ItemsSource = CopyDigitCollection(card.Row4NextPick3Digits);
+        SearchRow4CodingItems.ItemsSource = CopyDigitCollection(card.Row4CodingDigits);
+
+        SearchPick4MatchesRow1Row2.Text = card.Pick4MatchesRow1Row2 ?? "0C";
+        SearchCodingMatchesRow1Row2.Text = card.CodingMatchesRow1Row2 ?? "0C";
+        SearchPick4MatchesRow3Row4.Text = card.Pick4MatchesRow3Row4 ?? "0C";
+        SearchCodingMatchesRow3Row4.Text = card.CodingMatchesRow3Row4 ?? "0C";
+        //SearchAnalysisSummary.Text = card.AnalysisSummary ?? string.Empty;
+    }
+
+    private GuidePattern? BuildGuidePattern()
+    {
+        if (_currentCard == null)
+        {
+            return null;
+        }
+
+        return new GuidePattern
+        {
+            Pick3Digits = CopyDigitCollection(_currentCard.Row1Pick3Digits),
+            Pick4Digits = CopyDigitCollection(_currentCard.Row1Pick4Digits),
+            NextPick3Digits = CopyDigitCollection(_currentCard.Row1NextPick3Digits),
+            CodingDigits = CopyDigitCollection(_currentCard.Row1CodingDigits),
+            DateText = _currentCard.Row1DateText,
+            DrawIcon = _currentCard.Row1DrawIcon,
+            Pick3Value = DigitsToString(_currentCard.Row1Pick3Digits),
+            Pick4Value = DigitsToString(_currentCard.Row1Pick4Digits)
+        };
+    }
+
+    private AnalysisPairCardVM BuildAnalysisPairCard(GuidePattern guide, FilteredCodificacion codificacion)
+    {
+        return new AnalysisPairCardVM
+        {
+            GuidePick3Value = guide.Pick3Value,
+            GuidePick4Value = guide.Pick4Value,
+            GuideNextPick3Value = DigitsToString(guide.NextPick3Digits),
+            GuideCodingValue = DigitsToString(guide.CodingDigits),
+            GuideDateText = guide.DateText,
+            GuideDrawIcon = guide.DrawIcon,
+            GuidePick3Digits = CopyDigitCollection(guide.Pick3Digits),
+            GuidePick4Digits = CopyDigitCollection(guide.Pick4Digits),
+            GuideNextPick3Digits = CopyDigitCollection(guide.NextPick3Digits),
+            GuideCodingDigits = CopyDigitCollection(guide.CodingDigits),
+
+            ResPick3Value = codificacion.Pick3,
+            ResPick4Value = codificacion.Pick4,
+            ResNextPick3Value = codificacion.NextPick3,
+            ResDateText = codificacion.Date.ToString("yyyy-MM-dd"),
+            ResDrawIcon = codificacion.DrawTime == "M" ? "☀️" : "🌙",
+            ResPick3Digits = BuildDigitsFromNumber(codificacion.Pick3),
+            ResPick4Digits = BuildDigitsFromNumber(codificacion.Pick4),
+            ResNextPick3Digits = BuildDigitsFromNumber(codificacion.NextPick3),
+            ResCodingDigits = BuildCodingDigits(codificacion.Pick3, codificacion.Pick4)
+        };
+    }
+
+    private bool MatchesGuideCounters(ThirdAnalysisCardVM card)
+    {
+        if (_currentCard == null)
+        {
+            return false;
+        }
+
+        return NormalizeCounter(card.Pick4MatchesRow1Row2) == NormalizeCounter(_currentCard.Pick4MatchesRow1Row2)
+            && NormalizeCounter(card.CodingMatchesRow1Row2) == NormalizeCounter(_currentCard.CodingMatchesRow1Row2)
+            && NormalizeCounter(card.Pick4MatchesRow3Row4) == NormalizeCounter(_currentCard.Pick4MatchesRow3Row4)
+            && NormalizeCounter(card.CodingMatchesRow3Row4) == NormalizeCounter(_currentCard.CodingMatchesRow3Row4);
+    }
+
+    private static string NormalizeCounter(string? value)
+        => string.IsNullOrWhiteSpace(value) ? "0C" : value.Trim();
+
+    private static ObservableCollection<DigitVM> BuildDigitsFromNumber(string number)
+    {
+        var digits = new ObservableCollection<DigitVM>();
+        if (string.IsNullOrWhiteSpace(number))
+        {
+            return digits;
+        }
+
+        foreach (char digit in number)
+        {
+            digits.Add(new DigitVM
+            {
+                Value = digit.ToString(),
+                Bg = CreateFrozenBrush(Colors.White)
+            });
+        }
+
+        return digits;
+    }
+
+    private static ObservableCollection<DigitVM> BuildCodingDigits(string pick3, string pick4)
+    {
+        var allDigits = (pick3 + pick4)
+            .Where(char.IsDigit)
+            .Select(d => int.Parse(d.ToString()))
+            .Distinct()
+            .OrderBy(d => d)
+            .Select(d => d.ToString())
+            .ToList();
+
+        while (allDigits.Count < 6)
+        {
+            allDigits.Add("");
+        }
+
+        return new ObservableCollection<DigitVM>(
+            allDigits.Take(6)
+                .Select(digit => new DigitVM
+                {
+                    Value = digit,
+                    Bg = CreateFrozenBrush(Colors.White)
+                }));
+    }
+
+    private static string DigitsToString(IEnumerable<DigitVM> digits)
+        => string.Concat(digits.Select(d => d.Value));
+
+    private static bool[]? BuildPick3RepeatPattern(string row1Pick3, string row3Pick3)
+    {
+        if (string.IsNullOrWhiteSpace(row1Pick3) || row1Pick3.Length != 3 ||
+            string.IsNullOrWhiteSpace(row3Pick3) || row3Pick3.Length != 3)
+        {
+            return null;
+        }
+
+        var pattern = new bool[3];
+        for (int i = 0; i < 3; i++)
+        {
+            char top = row1Pick3[i];
+            char bottom = row3Pick3[i];
+
+            if (!char.IsDigit(top) || !char.IsDigit(bottom))
+            {
+                return null;
+            }
+
+            pattern[i] = top == bottom;
+        }
+
+        return pattern;
+    }
+
+    private static bool MatchesPick3RepeatPattern(ThirdAnalysisCardVM card, bool[] guidePattern)
+    {
+        var cardPattern = BuildPick3RepeatPattern(
+            DigitsToString(card.Row1Pick3Digits),
+            DigitsToString(card.Row3Pick3Digits));
+
+        if (cardPattern == null || guidePattern.Length != 3)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < 3; i++)
+        {
+            if (cardPattern[i] != guidePattern[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static (char digit, int pick3Position, int pick4Position)? GetRepeatedDigitPositions(string pick3, string pick4)
+    {
+        if (string.IsNullOrWhiteSpace(pick3) || pick3.Length != 3 ||
+            string.IsNullOrWhiteSpace(pick4) || pick4.Length != 4)
+            return null;
+
+        for (int i = 0; i < pick3.Length; i++)
+        {
+            char digit = pick3[i];
+            int positionInPick4 = pick4.IndexOf(digit, StringComparison.Ordinal);
+
+            if (positionInPick4 >= 0)
+            {
+                return (digit, i, positionInPick4);
+            }
+        }
+
+        return null;
+    }
+
+    private sealed class GuidePattern
+    {
+        public ObservableCollection<DigitVM> Pick3Digits { get; init; } = new();
+        public ObservableCollection<DigitVM> Pick4Digits { get; init; } = new();
+        public ObservableCollection<DigitVM> NextPick3Digits { get; init; } = new();
+        public ObservableCollection<DigitVM> CodingDigits { get; init; } = new();
+        public string DateText { get; init; } = string.Empty;
+        public string DrawIcon { get; init; } = string.Empty;
+        public string Pick3Value { get; init; } = string.Empty;
+        public string Pick4Value { get; init; } = string.Empty;
+    }
+
 
     private void SetAllFixedPick3Values()
     {
         // Fijar valores para fila 1
         var row1Digits = new ObservableCollection<DigitVM>
         {
-            new DigitVM { Value = "1", Bg = new SolidColorBrush(Colors.White) },
-            new DigitVM { Value = "2", Bg = new SolidColorBrush(Colors.White) },
-            new DigitVM { Value = "3", Bg = new SolidColorBrush(Colors.White) }
+            new DigitVM { Value = "1", Bg = CreateFrozenBrush(Colors.White) },
+            new DigitVM { Value = "2", Bg = CreateFrozenBrush(Colors.White) },
+            new DigitVM { Value = "3", Bg = CreateFrozenBrush(Colors.White) }
         };
         SearchRow1Pick3Items.ItemsSource = row1Digits;
 
         // Fijar valores para fila 2
         var row2Digits = new ObservableCollection<DigitVM>
         {
-            new DigitVM { Value = "4", Bg = new SolidColorBrush(Colors.LightBlue) },
-            new DigitVM { Value = "5", Bg = new SolidColorBrush(Colors.LightBlue) },
-            new DigitVM { Value = "6", Bg = new SolidColorBrush(Colors.LightBlue) }
+            new DigitVM { Value = "4", Bg = CreateFrozenBrush(Colors.LightBlue) },
+            new DigitVM { Value = "5", Bg = CreateFrozenBrush(Colors.LightBlue) },
+            new DigitVM { Value = "6", Bg = CreateFrozenBrush(Colors.LightBlue) }
         };
         SearchRow2Pick3Items.ItemsSource = row2Digits;
 
         // Fijar valores para fila 3
         var row3Digits = new ObservableCollection<DigitVM>
         {
-            new DigitVM { Value = "7", Bg = new SolidColorBrush(Colors.LightPink) },
-            new DigitVM { Value = "8", Bg = new SolidColorBrush(Colors.LightPink) },
-            new DigitVM { Value = "9", Bg = new SolidColorBrush(Colors.LightPink) }
+            new DigitVM { Value = "7", Bg = CreateFrozenBrush(Colors.LightPink) },
+            new DigitVM { Value = "8", Bg = CreateFrozenBrush(Colors.LightPink) },
+            new DigitVM { Value = "9", Bg = CreateFrozenBrush(Colors.LightPink) }
         };
         SearchRow3Pick3Items.ItemsSource = row3Digits;
 
@@ -614,10 +857,20 @@ public partial class ThirdAnalysisOption1 : Window
             copy.Add(new DigitVM
             {
                 Value = digit.Value,
-                Bg = new SolidColorBrush(color)  // Usar el color original
+                Bg = CreateFrozenBrush(color)  // Usar el color original
             });
         }
         return copy;
+    }
+
+    private static SolidColorBrush CreateFrozenBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        if (brush.CanFreeze)
+        {
+            brush.Freeze();
+        }
+        return brush;
     }
 
     private void PositionAnalysisButton_Click(object sender, RoutedEventArgs e)

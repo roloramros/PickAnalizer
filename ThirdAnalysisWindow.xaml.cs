@@ -325,7 +325,7 @@ public partial class ThirdAnalysisWindow : Window
         canvas.Children.Add(line);
     }
 
-    private T FindVisualChild<T>(DependencyObject parent, string childName = null) where T : DependencyObject
+    private T? FindVisualChild<T>(DependencyObject parent, string? childName = null) where T : DependencyObject
     {
         if (parent == null) return null;
 
@@ -567,7 +567,7 @@ public class ThirdAnalysisCardVM
                 collection.Add(new DigitVM
                 {
                     Value = digit.ToString(),
-                    Bg = new SolidColorBrush(Colors.White)
+                    Bg = CreateFrozenBrush(Colors.White)
                 });
             }
         }
@@ -582,7 +582,7 @@ public class ThirdAnalysisCardVM
                 collection.Add(new DigitVM
                 {
                     Value = digit.ToString(),
-                    Bg = new SolidColorBrush(Colors.White)
+                    Bg = CreateFrozenBrush(Colors.White)
                 });
             }
         }
@@ -652,7 +652,7 @@ public class ThirdAnalysisCardVM
                 {
                     if (digitVM.Value == repeatedDigit)
                     {
-                        digitVM.Bg = new SolidColorBrush(Colors.LightBlue);
+                        digitVM.Bg = CreateFrozenBrush(Colors.LightBlue);
                     }
                 }
                 
@@ -661,7 +661,7 @@ public class ThirdAnalysisCardVM
                 {
                     if (digitVM.Value == repeatedDigit)
                     {
-                        digitVM.Bg = new SolidColorBrush(Colors.LightBlue);
+                        digitVM.Bg = CreateFrozenBrush(Colors.LightBlue);
                     }
                 }
                 
@@ -670,7 +670,7 @@ public class ThirdAnalysisCardVM
                 {
                     if (digitVM.Value == repeatedDigit)
                     {
-                        digitVM.Bg = new SolidColorBrush(Colors.LightBlue);
+                        digitVM.Bg = CreateFrozenBrush(Colors.LightBlue);
                     }
                 }
             }
@@ -709,12 +709,12 @@ public class ThirdAnalysisCardVM
             if (repeatedValues.Contains(digitVM.Value))
             {
                 // Usar el color especificado
-                digitVM.Bg = new SolidColorBrush(highlightColor);
+                digitVM.Bg = CreateFrozenBrush(highlightColor);
             }
             else
             {
                 // Mantener blanco para no repetidos
-                digitVM.Bg = new SolidColorBrush(Colors.White);
+                digitVM.Bg = CreateFrozenBrush(Colors.White);
             }
         }
     }
@@ -769,10 +769,20 @@ public class ThirdAnalysisCardVM
             copy.Add(new DigitVM
             {
                 Value = digit.Value,
-                Bg = new SolidColorBrush(Colors.White)  
+                Bg = CreateFrozenBrush(Colors.White)  
             });
         }
         return copy;
+    }
+
+    private static SolidColorBrush CreateFrozenBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        if (brush.CanFreeze)
+        {
+            brush.Freeze();
+        }
+        return brush;
     }
 
     private static ObservableCollection<ThirdAnalysisResultVM> ExecuteThirdAnalysis(

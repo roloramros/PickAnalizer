@@ -144,6 +144,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void AddManual_Click(object sender, RoutedEventArgs e)
     {
         var win = new AddPick3Window { Owner = this };
+        win.RecordSaved += (_, __) => LoadPage(_pageIndex);
         if (win.ShowDialog() == true)
         {
             // refresca página actual (por si insertaste una fecha reciente)
