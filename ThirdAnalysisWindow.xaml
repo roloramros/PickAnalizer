@@ -715,14 +715,6 @@
 
                                             </StackPanel>
                                         </Border>
-
-                                        <!-- Resumen del análisis -->
-                                        <TextBlock Text="{Binding AnalysisSummary}"
-
-                                                   FontSize="12"
-                                                   HorizontalAlignment="Right"
-                                                   Margin="0,10,0,0"
-                                                   Foreground="#666666"/>
                                     
                                     </StackPanel>
                                 </Grid>

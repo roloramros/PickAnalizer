@@ -44,29 +44,7 @@ public partial class AddPick3Window : Window
         }
 
         int? pick3Fireball = null;
-        if (!string.IsNullOrWhiteSpace(TxtPick3Fireball.Text))
-        {
-            if (!int.TryParse(TxtPick3Fireball.Text, out var fb))
-            {
-                MessageBox.Show("Fireball de Pick 3 inválido", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            pick3Fireball = fb;
-        }
-
         int? pick4Fireball = null;
-        if (!string.IsNullOrWhiteSpace(TxtPick4Fireball.Text))
-        {
-            if (!int.TryParse(TxtPick4Fireball.Text, out var fb))
-            {
-                MessageBox.Show("Fireball de Pick 4 inválido", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            pick4Fireball = fb;
-        }
-
         try
         {
             // Guardar el registro
@@ -81,9 +59,7 @@ public partial class AddPick3Window : Window
 
             // Reiniciar los campos (excepto fecha y sorteo)
             TxtPick3Number.Text = "";
-            TxtPick3Fireball.Text = "";
             TxtPick4Number.Text = "";
-            TxtPick4Fireball.Text = "";
 
             // Opcional: Mantener el foco en el primer campo para siguiente entrada
             TxtPick3Number.Focus();

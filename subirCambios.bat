@@ -1,3 +1,3 @@
 git add .
-git commit -m "Opcion1 Mal"
+git commit -m "Terminando Filtro Opcion1"
 git push

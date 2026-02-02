@@ -546,6 +546,12 @@ public class ThirdAnalysisCardVM
             card.Row4NextPick3Digits = CopyDigitCollection(card.Row2NextPick3Digits);
             card.Row4CodingDigits = CopyDigitCollection(card.Row2CodingDigits);
 
+            // NUEVO FILTRO: No permitir digitos repetidos en NextPick3 de fila 1 y 2
+            if (HasRepeatedDigits(card.Row1NextPick3Digits) || HasRepeatedDigits(card.Row2NextPick3Digits))
+            {
+                continue;
+            }
+
             resultCollection.Add(card);
         }
 
@@ -553,6 +559,13 @@ public class ThirdAnalysisCardVM
         foreach (var card in resultCollection)
         {
             ProcessCodingColors(card);
+        }
+
+        if (resultCollection.Count == 0)
+        {
+            var emptyCard = CreateEmptyCard(originalCard);
+            emptyCard.AnalysisSummary = "No se encontraron resultados que cumplan con el filtro de posicion y repeticion en NextPick3";
+            resultCollection.Add(emptyCard);
         }
 
         return resultCollection;
@@ -717,6 +730,26 @@ public class ThirdAnalysisCardVM
                 digitVM.Bg = CreateFrozenBrush(Colors.White);
             }
         }
+    }
+
+    private static bool HasRepeatedDigits(ObservableCollection<DigitVM> collection)
+    {
+        if (collection == null || collection.Count == 0)
+        {
+            return false;
+        }
+
+        var values = collection
+            .Select(d => d.Value)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .ToList();
+
+        if (values.Count != 3)
+        {
+            return false;
+        }
+
+        return values.Distinct().Count() != 3;
     }
 
     private static ThirdAnalysisCardVM CreateEmptyCard(AnalysisPairCardVM originalCard)

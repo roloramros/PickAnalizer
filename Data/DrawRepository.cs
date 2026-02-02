@@ -131,7 +131,7 @@ public static class DrawRepository
     }
     
 
-    public static List<FilteredCodificacion> GetCodificacionesWithSingleCommonDigit()
+    public static List<FilteredCodificacion> GetCodificacionesWithSingleCommonDigit(int maxResults = 1)
     {
         using var conn = Db.Open();
         using var cmd = conn.CreateCommand();
@@ -182,12 +182,17 @@ public static class DrawRepository
                 continue;
 
             // REGLA 4: NextPick3 debe tener 3 dígitos distintos (opcional, puedes quitar esta si no es necesaria)
-            if (nextPick3Digits.Distinct().Count() != 3)
-                continue;
+            //if (nextPick3Digits.Distinct().Count() != 3)
+                //continue;
 
             results.Add(new FilteredCodificacion(
                 date, drawTime, fullNumber, pick3, pick4, nextPick3
             ));
+
+            //if (results.Count >= maxResults)
+            //{
+              //  break;
+            //}
         }
 
         return results;
