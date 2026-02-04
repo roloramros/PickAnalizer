@@ -47,16 +47,6 @@ public partial class ThirdAnalysisWindow : Window
         ThirdAnalysisOption1.Show();
     }
 
-
-
-
-
-
-
-
-
-
-
     private (char digit, int pick3Position, int pick4Position)? GetRepeatedDigitPositions(string pick3, string pick4)
     {
         if (string.IsNullOrWhiteSpace(pick3) || pick3.Length != 3 ||
@@ -356,6 +346,12 @@ public partial class ThirdAnalysisWindow : Window
         return null;
     }
 }
+
+
+
+
+
+
 
 public class ThirdAnalysisCardVM
 {

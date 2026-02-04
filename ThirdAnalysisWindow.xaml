@@ -464,9 +464,7 @@
                                                     </Grid.ColumnDefinitions>
 
                                                     <!-- Pick3 (3) del resultado -->
-                                                    <ItemsControl x:Name="Row3Pick3Items"
-                                                                  Grid.Column="0" 
-                                                                  ItemsSource="{Binding Row3Pick3Digits}">
+                                                    <ItemsControl x:Name="Row3Pick3Items" Grid.Column="0" ItemsSource="{Binding Row3Pick3Digits}">
                                                         <ItemsControl.ItemsPanel>
                                                             <ItemsPanelTemplate>
                                                                 <UniformGrid Rows="1" Columns="3"/>

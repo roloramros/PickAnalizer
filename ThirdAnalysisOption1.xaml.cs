@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,34 +9,57 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using System.Threading.Tasks;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using FloridaLotteryApp.Data;
 
 namespace FloridaLotteryApp;
 
-public partial class ThirdAnalysisOption1 : Window
+public partial class ThirdAnalysisOption1 : Window, INotifyPropertyChanged
 {
     private ThirdAnalysisCardVM? _currentCard;
-    private List<ThirdAnalysisCardVM> _matchedCards = new();
-    private int _currentIndex = 0;
+    private int _currentIndex = -1;
+    private ThirdAnalysisCardVM? _currentSearchCard;
+    
+    public ObservableCollection<ThirdAnalysisCardVM> SearchCards { get; } = new ObservableCollection<ThirdAnalysisCardVM>();
+    
+    public ThirdAnalysisCardVM? CurrentSearchCard
+    {
+        get => _currentSearchCard;
+        set
+        {
+            _currentSearchCard = value;
+            OnPropertyChanged(nameof(CurrentSearchCard));
+            UpdateSearchCardUI();
+            UpdateNavigationButtons();
+        }
+    }
+    
+    private sealed record CuartetoOccurrence(FilteredCodificacion Row1, FilteredCodificacion Row2, FilteredCodificacion Row3, FilteredCodificacion Row4);
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    
+    protected virtual void OnPropertyChanged(string propertyName)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
 
     public ThirdAnalysisOption1()
     {
         InitializeComponent();
-        InitializeEventHandlers();
-    }
-
-    private void InitializeEventHandlers()
-    {
-        PreviousButton.Click += PreviousButton_Click;
-        NextButton.Click += NextButton_Click;
+        DataContext = this;
+        
+        // Inicializar botones deshabilitados
+        if (PreviousButton != null) PreviousButton.IsEnabled = false;
+        if (NextButton != null) NextButton.IsEnabled = false;
     }
 
     public ThirdAnalysisOption1(ThirdAnalysisCardVM card)
     {
         InitializeComponent();
+        DataContext = this;
         _currentCard = card;
         SearchTab.IsSelected = true;
-        InitializeEventHandlers();
         Loaded += ThirdAnalysisOption1_Loaded;
 
         LoadCard(card);
@@ -56,7 +80,7 @@ public partial class ThirdAnalysisOption1 : Window
             ResultsProgress.IsIndeterminate = true;
 
             var codificaciones = await Task.Run(
-                () => DrawRepository.GetCodificacionesWithSingleCommonDigit());    
+                () => DrawRepository.GetCodificacionesWithSingleCommonDigit());      
 
             if (_currentCard == null)
             {
@@ -72,42 +96,53 @@ public partial class ThirdAnalysisOption1 : Window
 
             // ======= CREAR LISTA DE TODOS LOS FULLNUMBERS =======
             // Extraer FullNumber de cada codificación
-            var allFullNumbers = codificaciones
-                .Select(c => c.FullNumber)
-                .Where(fn => !string.IsNullOrWhiteSpace(fn) && fn.Length == 10)
-                .Distinct()
+            var validCodificaciones = codificaciones
+                .Where(c => !string.IsNullOrWhiteSpace(c.FullNumber) && c.FullNumber.Length == 10)
                 .ToList();
-            
-            MessageBox.Show($"Total de FullNumbers disponibles: {allFullNumbers.Count}", 
-                        "Depuración", 
-                        MessageBoxButton.OK, MessageBoxImage.Information);
-            // ======= FIN CREACIÓN LISTA =======
+
+            var codificacionesByFullNumber = validCodificaciones
+                .GroupBy(c => c.FullNumber)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            var allFullNumbers = codificacionesByFullNumber.Keys.ToList();
 
             // ======= PROCESAR CADA FULLNUMBER =======
-            var allResults = new List<(string Original, string Compatible)>();
-            
-            int processedCount = 0;
-            foreach (var fullNumber in allFullNumbers)
+            ResultsProgress.IsIndeterminate = false;
+            ResultsProgress.Minimum = 0;
+            ResultsProgress.Maximum = allFullNumbers.Count;
+            ResultsProgress.Value = 0;
+            ResultsProgressText.Text = $"Procesando 0 de {allFullNumbers.Count}...";
+
+            IProgress<int> progress = new System.Progress<int>(value =>
             {
-                // Aplicar la función a cada FullNumber
-                var resultsForThisNumber = FindFilteredPairs(
-                    fullNumberOriginal: fullNumber,
-                    allFullNumbers: allFullNumbers,
-                    guidePair: guidePair);
-                // Acumular resultados
-                allResults.AddRange(resultsForThisNumber);
-                processedCount++;
-                //if (processedCount == 1)
-                //{
-                //    break;
-                //}
-                
-            }
+                ResultsProgress.Value = value;
+                ResultsProgressText.Text = $"Procesando {value} de {allFullNumbers.Count}...";
+            });
+
+            var allResults = await Task.Run(() =>
+            {
+                var results = new List<(string Original, string Compatible)>();
+                int processedCount = 0;
+
+                foreach (var fullNumber in allFullNumbers)
+                {
+                    var resultsForThisNumber = FindFilteredPairs(
+                        fullNumberOriginal: fullNumber,
+                        allFullNumbers: allFullNumbers,
+                        guidePair: guidePair);
+
+                    results.AddRange(resultsForThisNumber);
+                    processedCount++;
+                    progress.Report(processedCount);
+                }
+
+                progress.Report(processedCount);
+                return results;
+            });
 
             var validCuartetos = FormCuartetosFromPairs(allResults);
 
             string mensaje = $"Cuartetos válidos encontrados: {validCuartetos.Count}";
-            MessageBox.Show(mensaje, "Resultados", MessageBoxButton.OK, MessageBoxImage.Information);
 
             string pick4MatchesRow1Row2 = _currentCard?.Pick4MatchesRow1Row2 ?? "0C";
             string codingMatchesRow1Row2 = _currentCard?.CodingMatchesRow1Row2 ?? "0C";
@@ -122,135 +157,43 @@ public partial class ThirdAnalysisOption1 : Window
                 refPick4MatchesRow3Row4: pick4MatchesRow3Row4,
                 refCodingMatchesRow3Row4: codingMatchesRow3Row4);
 
-            // 3. Mostrar resultados
-            if (cuartetosFiltrados.Count > 0)
-        {
-            string resultadoMensaje  = $"TOTAL: {cuartetosFiltrados.Count} cuartetos\n\n";
-            
-            int mostrar = Math.Min(cuartetosFiltrados.Count, 10);
-            resultadoMensaje  += $"Primeros {mostrar}:\n\n";
-            
-            for (int i = 0; i < mostrar; i++)
-            {
-                var c = cuartetosFiltrados[i];
-                resultadoMensaje  += $"{i+1}. {c.First} | {c.Second} | {c.Third} | {c.Fourth}\n";
-            }
-            
-            if (cuartetosFiltrados.Count > 10)
-            {
-                resultadoMensaje  += $"\n... y {cuartetosFiltrados.Count - 10} más";
-            }
-            
-            MessageBox.Show(resultadoMensaje , "Resultados", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-
-
-
-            // ======= FIN PROCESAMIENTO =======
-
-
-
-
-
-
-
-
-            var guidePick3RepeatPattern = BuildPick3RepeatPattern(
-                DigitsToString(_currentCard.Row1Pick3Digits),
-                DigitsToString(_currentCard.Row3Pick3Digits));
-
-            if (guidePick3RepeatPattern == null)
-            {
-                ResultsCounter.Text = "Resultados: 0 encontrados";
-                return;
-            }
+            var cuartetoOccurrences = ExpandCuartetosWithOccurrences(
+                cuartetosFiltrados,
+                codificacionesByFullNumber);
 
             ResultsProgress.IsIndeterminate = false;
             ResultsProgress.Minimum = 0;
-            ResultsProgress.Maximum = codificaciones.Count;
+            ResultsProgress.Maximum = cuartetoOccurrences.Count;
             ResultsProgress.Value = 0;
-            ShowProgress(true, $"Procesando 0 de {codificaciones.Count}...");
+            ResultsProgressText.Text = $"Construyendo 0 de {cuartetoOccurrences.Count}...";
 
-            _matchedCards = new List<ThirdAnalysisCardVM>();
-            _currentIndex = 0;
-
-            IProgress<int> progress = new System.Progress<int>(value =>
+            SearchCards.Clear();
+            int builtCount = 0;
+            foreach (var cuarteto in cuartetoOccurrences)
             {
-                ResultsProgress.Value = value;
-                ResultsProgressText.Text = $"Procesando {value} de {codificaciones.Count}...";
-            });
+                SearchCards.Add(BuildCardFromCuarteto(cuarteto));
+                builtCount++;
+                ResultsProgress.Value = builtCount;
+                ResultsProgressText.Text = $"Construyendo {builtCount} de {cuartetoOccurrences.Count}...";
+            }
 
-            IProgress<ThirdAnalysisCardVM> matchProgress = new System.Progress<ThirdAnalysisCardVM>(card =>
+            if (SearchCards.Count > 0)
             {
-                _matchedCards.Add(card);
-
-                if (_matchedCards.Count == 1)
-                {
-                    DisplayMatchCard(0);
-                }
-                else
-                {
-                    ResultsCounter.Text = $"Resultado {_currentIndex + 1} de {_matchedCards.Count}";
-                }
-
-                UpdateNavigationButtons();
-            });
-
-            await Task.Run(() =>
-            {
-                int processed = 0;
-
-                foreach (var codificacion in codificaciones)
-                {
-                    if (TryBuildFirstAnalysisGuide(codificacion, out var guide, out var rows))
-                    {
-                        foreach (var row in rows)
-                        {
-                            var pairCard = AnalysisPairCardVM.Create(guide, row);
-                            var guidePositions = GetRepeatedDigitPositions(
-                                pairCard.GuidePick3Value,
-                                pairCard.GuidePick4Value);
-                            var resultPositions = GetRepeatedDigitPositions(
-                                pairCard.ResPick3Value,
-                                pairCard.ResPick4Value);
-
-                            var cards = ThirdAnalysisCardVM.CreateMultipleFrom(
-                                pairCard,
-                                guidePositions,
-                                resultPositions);
-
-                            foreach (var card in cards)
-                            {
-                                if (MatchesGuideCounters(card) && MatchesPick3RepeatPattern(card, guidePick3RepeatPattern))
-                                {
-                                    matchProgress.Report(card);
-                                }
-                            }
-                        }
-                    }
-
-                    processed++;
-                    if (processed % 1 == 0)
-                    {
-                        progress.Report(processed);
-                    }
-                }
-
-                progress.Report(processed);
-            });
-
-            if (_matchedCards.Count == 0)
+                _currentIndex = 0;
+                CurrentSearchCard = SearchCards[0];
+                UpdateResultsCounter();
+            }
+            else
             {
                 ResultsCounter.Text = "Resultados: 0 encontrados";
             }
 
-            UpdateNavigationButtons();
+            return;
         }
         catch (Exception ex)
         {
             MessageBox.Show($"Error al cargar codificaciones: {ex.Message}", "Error", 
                 MessageBoxButton.OK, MessageBoxImage.Error);
-            _matchedCards = new List<ThirdAnalysisCardVM>();
         }
         finally
         {
@@ -392,21 +335,40 @@ public partial class ThirdAnalysisOption1 : Window
                 groupsByOriginal[pair.Original].Add(pair.Compatible);
             }
         }
+
+        // Reiniciar progreso para construcción de cuartetos por cada grupo
+        ResultsProgress.IsIndeterminate = false;
+        ResultsProgress.Minimum = 0;
+        ResultsProgress.Value = 0;
+        ResultsProgressText.Text = "Construyendo 0 de 0...";
         
         // 2. Procesar cada grupo
+        int groupIndex = 0;
+        int totalGroups = groupsByOriginal.Count;
         foreach (var group in groupsByOriginal)
         {
+            groupIndex++;
             string original = group.Key;        // Primero
             List<string> compatibles = group.Value;
             
             // Necesitamos al menos 2 compatibles para formar cuartetos
             if (compatibles.Count >= 2)
             {
+                long expectedTotal = (long)compatibles.Count * (compatibles.Count - 1) / 2;
+                ResultsProgress.Maximum = expectedTotal > 0 ? expectedTotal : 1;
+                ResultsProgress.Value = 0;
+                ResultsProgressText.Text = $"Construyendo 0 de {expectedTotal} (grupo {groupIndex}/{totalGroups})...";
+                long processedCuartetos = 0;
+
                 // 3. Generar todas las combinaciones de 2 compatibles
                 for (int i = 0; i < compatibles.Count - 1; i++)
                 {
                     for (int j = i + 1; j < compatibles.Count; j++)
                     {
+                        processedCuartetos++;
+                        ResultsProgress.Value = processedCuartetos;
+                        ResultsProgressText.Text = $"Construyendo {processedCuartetos} de {expectedTotal} (grupo {groupIndex}/{totalGroups})...";
+
                         string compatible1 = compatibles[i];  // Segundo
                         string compatible2 = compatibles[j];  // Tercero
                         
@@ -580,7 +542,7 @@ public partial class ThirdAnalysisOption1 : Window
     }
 
     // Función auxiliar para calcular Coding
-    private string CalculateCoding(string pick3, string pick4)
+    private static string CalculateCoding(string pick3, string pick4)
     {
         // Unir Pick3 + Pick4, tomar dígitos únicos, ordenar
         var allDigits = (pick3 + pick4).Where(char.IsDigit).Distinct().OrderBy(c => c);
@@ -601,31 +563,6 @@ public partial class ThirdAnalysisOption1 : Window
         return matches;
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     private void ShowProgress(bool isVisible, string message)
     {
         var visibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
@@ -634,40 +571,78 @@ public partial class ThirdAnalysisOption1 : Window
         ResultsProgressText.Text = message;
     }
 
-    private void DisplayMatchCard(int index)
+    private static List<CuartetoOccurrence> ExpandCuartetosWithOccurrences(
+        List<(string First, string Second, string Third, string Fourth)> cuartetos,
+        Dictionary<string, List<FilteredCodificacion>> codificacionesByFullNumber)
     {
-        if (index < 0 || index >= _matchedCards.Count)
-            return;
+        var expanded = new List<CuartetoOccurrence>();
 
-        var card = _matchedCards[index];
-        LoadSearchCard(card);
-
-        _currentIndex = index;
-        ResultsCounter.Text = $"Resultado {_currentIndex + 1} de {_matchedCards.Count}";
-    }
-
-    private void UpdateNavigationButtons()
-    {
-        PreviousButton.IsEnabled = _currentIndex > 0;
-        NextButton.IsEnabled = _currentIndex < _matchedCards.Count - 1;
-    }
-
-    private void PreviousButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_currentIndex > 0)
+        foreach (var cuarteto in cuartetos)
         {
-            DisplayMatchCard(_currentIndex - 1);
-            UpdateNavigationButtons();
+            if (!codificacionesByFullNumber.TryGetValue(cuarteto.First, out var row1List) ||
+                !codificacionesByFullNumber.TryGetValue(cuarteto.Second, out var row2List) ||
+                !codificacionesByFullNumber.TryGetValue(cuarteto.Third, out var row3List))
+            {
+                continue;
+            }
+
+            foreach (var row1 in row1List)
+            {
+                foreach (var row2 in row2List)
+                {
+                    foreach (var row3 in row3List)
+                    {
+                        expanded.Add(new CuartetoOccurrence(row1, row2, row3, row2));
+                    }
+                }
+            }
         }
+
+        return expanded;
     }
 
-    private void NextButton_Click(object sender, RoutedEventArgs e)
+    private static ThirdAnalysisCardVM BuildCardFromCuarteto(CuartetoOccurrence cuarteto)
     {
-        if (_currentIndex < _matchedCards.Count - 1)
+        var card = new ThirdAnalysisCardVM
         {
-            DisplayMatchCard(_currentIndex + 1);
-            UpdateNavigationButtons();
-        }
+            Row1DateText = cuarteto.Row1.Date.ToString("yyyy-MM-dd"),
+            Row1DrawIcon = DrawTimeToIcon(cuarteto.Row1.DrawTime),
+            Row1Pick3Digits = BuildDigitsFromNumber(cuarteto.Row1.Pick3),
+            Row1Pick4Digits = BuildDigitsFromNumber(cuarteto.Row1.Pick4),
+            Row1NextPick3Digits = BuildDigitsFromNumber(cuarteto.Row1.NextPick3),
+            Row1CodingDigits = BuildDigitsFromNumber(CalculateCoding(cuarteto.Row1.Pick3, cuarteto.Row1.Pick4)),
+
+            Row2DateText = cuarteto.Row2.Date.ToString("yyyy-MM-dd"),
+            Row2DrawIcon = DrawTimeToIcon(cuarteto.Row2.DrawTime),
+            Row2Pick3Digits = BuildDigitsFromNumber(cuarteto.Row2.Pick3),
+            Row2Pick4Digits = BuildDigitsFromNumber(cuarteto.Row2.Pick4),
+            Row2NextPick3Digits = BuildDigitsFromNumber(cuarteto.Row2.NextPick3),
+            Row2CodingDigits = BuildDigitsFromNumber(CalculateCoding(cuarteto.Row2.Pick3, cuarteto.Row2.Pick4)),
+
+            Row3DateText = cuarteto.Row3.Date.ToString("yyyy-MM-dd"),
+            Row3DrawIcon = DrawTimeToIcon(cuarteto.Row3.DrawTime),
+            Row3Pick3Digits = BuildDigitsFromNumber(cuarteto.Row3.Pick3),
+            Row3Pick4Digits = BuildDigitsFromNumber(cuarteto.Row3.Pick4),
+            Row3NextPick3Digits = BuildDigitsFromNumber(cuarteto.Row3.NextPick3),
+            Row3CodingDigits = BuildDigitsFromNumber(CalculateCoding(cuarteto.Row3.Pick3, cuarteto.Row3.Pick4))
+        };
+
+        card.Row4DateText = card.Row2DateText;
+        card.Row4DrawIcon = card.Row2DrawIcon;
+        card.Row4Pick3Digits = CopyDigitCollection(card.Row2Pick3Digits);
+        card.Row4Pick4Digits = CopyDigitCollection(card.Row2Pick4Digits);
+        card.Row4NextPick3Digits = CopyDigitCollection(card.Row2NextPick3Digits);
+        card.Row4CodingDigits = CopyDigitCollection(card.Row2CodingDigits);
+
+        ApplyMatchColors(card);
+
+        return card;
+    }
+
+    private void SearchCardBorder_Loaded(object sender, RoutedEventArgs e)
+    {
+        // Este método ya no es necesario ya que usamos una tarjeta individual
+        // Pero lo mantenemos por si acaso
     }
 
     private void LoadCard(ThirdAnalysisCardVM card)
@@ -718,43 +693,6 @@ public partial class ThirdAnalysisOption1 : Window
             MessageBox.Show($"Error al cargar la tarjeta: {ex.Message}", "Error", 
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
-    }
-
-    private void LoadSearchCard(ThirdAnalysisCardVM card)
-    {
-        SearchRow1DateText.Text = card.Row1DateText;
-        SearchRow1DrawIcon.Text = card.Row1DrawIcon;
-        SearchRow1Pick3Items.ItemsSource = CopyDigitCollection(card.Row1Pick3Digits);
-        SearchRow1Pick4Items.ItemsSource = CopyDigitCollection(card.Row1Pick4Digits);
-        SearchRow1NextPick3Items.ItemsSource = CopyDigitCollection(card.Row1NextPick3Digits);
-        SearchRow1CodingItems.ItemsSource = CopyDigitCollection(card.Row1CodingDigits);
-
-        SearchRow2DateText.Text = card.Row2DateText;
-        SearchRow2DrawIcon.Text = card.Row2DrawIcon;
-        SearchRow2Pick3Items.ItemsSource = CopyDigitCollection(card.Row2Pick3Digits);
-        SearchRow2Pick4Items.ItemsSource = CopyDigitCollection(card.Row2Pick4Digits);
-        SearchRow2NextPick3Items.ItemsSource = CopyDigitCollection(card.Row2NextPick3Digits);
-        SearchRow2CodingItems.ItemsSource = CopyDigitCollection(card.Row2CodingDigits);
-
-        SearchRow3DateText.Text = card.Row3DateText;
-        SearchRow3DrawIcon.Text = card.Row3DrawIcon;
-        SearchRow3Pick3Items.ItemsSource = CopyDigitCollection(card.Row3Pick3Digits);
-        SearchRow3Pick4Items.ItemsSource = CopyDigitCollection(card.Row3Pick4Digits);
-        SearchRow3NextPick3Items.ItemsSource = CopyDigitCollection(card.Row3NextPick3Digits);
-        SearchRow3CodingItems.ItemsSource = CopyDigitCollection(card.Row3CodingDigits);
-
-        SearchRow4DateText.Text = card.Row4DateText;
-        SearchRow4DrawIcon.Text = card.Row4DrawIcon;
-        SearchRow4Pick3Items.ItemsSource = CopyDigitCollection(card.Row4Pick3Digits);
-        SearchRow4Pick4Items.ItemsSource = CopyDigitCollection(card.Row4Pick4Digits);
-        SearchRow4NextPick3Items.ItemsSource = CopyDigitCollection(card.Row4NextPick3Digits);
-        SearchRow4CodingItems.ItemsSource = CopyDigitCollection(card.Row4CodingDigits);
-
-        SearchPick4MatchesRow1Row2.Text = card.Pick4MatchesRow1Row2 ?? "0C";
-        SearchCodingMatchesRow1Row2.Text = card.CodingMatchesRow1Row2 ?? "0C";
-        SearchPick4MatchesRow3Row4.Text = card.Pick4MatchesRow3Row4 ?? "0C";
-        SearchCodingMatchesRow3Row4.Text = card.CodingMatchesRow3Row4 ?? "0C";
-        //SearchAnalysisSummary.Text = card.AnalysisSummary ?? string.Empty;
     }
 
     private static bool TryBuildFirstAnalysisGuide(FilteredCodificacion codificacion, out GuideInfo guide, out List<AnalysisRow> rows)
@@ -1004,36 +942,9 @@ public partial class ThirdAnalysisOption1 : Window
 
     private void SetAllFixedPick3Values()
     {
-        // Fijar valores para fila 1
-        var row1Digits = new ObservableCollection<DigitVM>
-        {
-            new DigitVM { Value = "1", Bg = CreateFrozenBrush(Colors.White) },
-            new DigitVM { Value = "2", Bg = CreateFrozenBrush(Colors.White) },
-            new DigitVM { Value = "3", Bg = CreateFrozenBrush(Colors.White) }
-        };
-        SearchRow1Pick3Items.ItemsSource = row1Digits;
-
-        // Fijar valores para fila 2
-        var row2Digits = new ObservableCollection<DigitVM>
-        {
-            new DigitVM { Value = "4", Bg = CreateFrozenBrush(Colors.LightBlue) },
-            new DigitVM { Value = "5", Bg = CreateFrozenBrush(Colors.LightBlue) },
-            new DigitVM { Value = "6", Bg = CreateFrozenBrush(Colors.LightBlue) }
-        };
-        SearchRow2Pick3Items.ItemsSource = row2Digits;
-
-        // Fijar valores para fila 3
-        var row3Digits = new ObservableCollection<DigitVM>
-        {
-            new DigitVM { Value = "7", Bg = CreateFrozenBrush(Colors.LightPink) },
-            new DigitVM { Value = "8", Bg = CreateFrozenBrush(Colors.LightPink) },
-            new DigitVM { Value = "9", Bg = CreateFrozenBrush(Colors.LightPink) }
-        };
-        SearchRow3Pick3Items.ItemsSource = row3Digits;
-
-        // Fijar valores para fila 4 (igual que fila 2)
-        SearchRow4Pick3Items.ItemsSource = CopyDigitCollection(row2Digits);
+        // Intentionally empty: the search tab now uses an ItemsControl DataTemplate.
     }
+    
     private void OnWindowLoaded(object sender, RoutedEventArgs e)
     {
         // Esperar un poco más para asegurar que todos los controles estén renderizados
@@ -1047,34 +958,11 @@ public partial class ThirdAnalysisOption1 : Window
     {
         try
         {
-            // Asegurarse de que los ItemsControls están completamente cargados
-            ForceItemsControlUpdate(Row1Pick3Items);
-            ForceItemsControlUpdate(Row2Pick3Items);
-            ForceItemsControlUpdate(Row1NextPick3Items);
-            ForceItemsControlUpdate(Row2NextPick3Items);
-            ForceItemsControlUpdate(Row3Pick3Items);
-            ForceItemsControlUpdate(Row4Pick3Items);
-            ForceItemsControlUpdate(Row3NextPick3Items);
-            ForceItemsControlUpdate(Row4NextPick3Items);
-            ForceItemsControlUpdate(Row3Pick4Items);
-            ForceItemsControlUpdate(Row4Pick4Items);
-
-            // Conectar Pick3: Fila 1 con Fila 2
             ConnectPick3Digits(Row1Pick3Items, Row2Pick3Items, Pick3LinksCanvas);
-            
-            // Conectar NextPick3: Fila 1 con Fila 2
             ConnectPick3Digits(Row1NextPick3Items, Row2NextPick3Items, NextPick3LinksCanvas);
-            
-            // Conectar Pick3: Fila 3 con Fila 4
             ConnectPick3Digits(Row3Pick3Items, Row4Pick3Items, Pick3LinksCanvas);
-            
-            // Conectar NextPick3: Fila 3 con Fila 4
             ConnectPick3Digits(Row3NextPick3Items, Row4NextPick3Items, NextPick3LinksCanvas);
-            
-            // Conectar Pick3 de fila 3 con Pick4 de fila 4
             ConnectPick3ToPick4Digits(Row3Pick3Items, Row4Pick4Items, Pick3Row3ToPick4Row4LinksCanvas);
-            
-            // Conectar Pick3 de fila 4 con Pick4 de fila 3
             ConnectPick3ToPick4Digits(Row4Pick3Items, Row3Pick4Items, Pick3Row4ToPick4Row3LinksCanvas);
         }
         catch (Exception ex)
@@ -1115,12 +1003,8 @@ public partial class ThirdAnalysisOption1 : Window
 
             if (topDigits.Count != 3 || bottomDigits.Count != 3)
             {
-                Console.WriteLine($"Warning: No hay 3 dígitos. Top: {topDigits.Count}, Bottom: {bottomDigits.Count}");
                 return;
             }
-
-            // Limpiar canvas antes de dibujar
-            canvas.Children.Clear();
 
             // Conectar dígitos que coincidan
             for (int i = 0; i < 3; i++)
@@ -1151,7 +1035,6 @@ public partial class ThirdAnalysisOption1 : Window
     {
         if (pick3ItemsControl == null || pick4ItemsControl == null || canvas == null)
             return;
-
         try
         {
             // Obtener los contenedores de los dígitos
@@ -1160,7 +1043,6 @@ public partial class ThirdAnalysisOption1 : Window
 
             if (pick3Digits.Count != 3 || pick4Digits.Count != 4)
             {
-                Console.WriteLine($"Warning: Pick3: {pick3Digits.Count} dígitos, Pick4: {pick4Digits.Count} dígitos");
                 return;
             }
 
@@ -1198,19 +1080,36 @@ public partial class ThirdAnalysisOption1 : Window
         
         try
         {
-            // Asegurarse de que los contenedores están generados
-            itemsControl.ApplyTemplate();
-            
-            // Buscar todos los Border en el árbol visual
-            containers = FindVisualChildren<Border>(itemsControl)
-                .Where(b => b.Name == "" || b.Name.StartsWith("Border")) // Filtrar borders
-                .ToList();
+            if (itemsControl == null)
+            {
+                return containers;
+            }
 
-            // Si no encontramos borders, intentar otra estrategia
+            // 1. PRIMERO: Intentar usar ItemContainerGenerator
+            if (itemsControl.ItemContainerGenerator.Status == System.Windows.Controls.Primitives.GeneratorStatus.ContainersGenerated)
+            {
+                for (int i = 0; i < itemsControl.Items.Count; i++)
+                {
+                    var container = itemsControl.ItemContainerGenerator.ContainerFromIndex(i) as ContentPresenter;
+                    if (container != null)
+                    {
+                        // Buscar el Border dentro del ContentPresenter
+                        var border = FindVisualChild<Border>(container);
+                        if (border != null)
+                        {
+                            containers.Add(border);
+                        }
+                    }
+                }
+            }
+
+            // 2. SEGUNDO: Si no encontró contenedores, usar el método visual
             if (containers.Count == 0)
             {
-                // Buscar ContentPresenters y luego sus hijos Border
-                var contentPresenters = FindVisualChildren<ContentPresenter>(itemsControl);
+                
+                // Buscar ContentPresenters en el árbol visual
+                var contentPresenters = FindVisualChildren<ContentPresenter>(itemsControl).ToList();
+                
                 foreach (var cp in contentPresenters)
                 {
                     var border = FindVisualChild<Border>(cp);
@@ -1220,10 +1119,29 @@ public partial class ThirdAnalysisOption1 : Window
                     }
                 }
             }
+
+            // 3. TERCERO: Si aún no encontró, buscar directamente Borders
+            if (containers.Count == 0)
+            {
+                var allBorders = FindVisualChildren<Border>(itemsControl).ToList();
+                // Filtrar solo los Borders que tienen TextBlock como hijo
+                foreach (var border in allBorders)
+                {
+                    var textBlock = FindVisualChild<TextBlock>(border);
+                    if (textBlock != null && !string.IsNullOrEmpty(textBlock.Text))
+                    {
+                        containers.Add(border);
+                    }
+                }
+            }
+
+            
+
+            
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error obteniendo contenedores: {ex.Message}");
+            MessageBox.Show($"Error en GetDigitContainers: {ex.Message}\n{ex.StackTrace}");
         }
         
         return containers;
@@ -1372,7 +1290,7 @@ public partial class ThirdAnalysisOption1 : Window
         return results;
     }
 
-    private ObservableCollection<DigitVM> CopyDigitCollection(ObservableCollection<DigitVM> source)
+    private static ObservableCollection<DigitVM> CopyDigitCollection(ObservableCollection<DigitVM> source)
     {
         var copy = new ObservableCollection<DigitVM>();
         foreach (var digit in source)
@@ -1404,6 +1322,118 @@ public partial class ThirdAnalysisOption1 : Window
         return brush;
     }
 
+    private static void ApplyMatchColors(ThirdAnalysisCardVM card)
+    {
+        int codingMatches1 = ColorRepeatedDigitsInCollections(
+            card.Row1CodingDigits,
+            card.Row2CodingDigits,
+            Colors.LightPink);
+        card.CodingMatchesRow1Row2 = $"{codingMatches1}C";
+
+        int pick4Matches1 = ColorRepeatedDigitsInCollections(
+            card.Row1Pick4Digits,
+            card.Row2Pick4Digits,
+            Colors.LightBlue);
+        card.Pick4MatchesRow1Row2 = $"{pick4Matches1}C";
+
+        int codingMatches2 = ColorRepeatedDigitsInCollections(
+            card.Row3CodingDigits,
+            card.Row4CodingDigits,
+            Colors.LightPink);
+        card.CodingMatchesRow3Row4 = $"{codingMatches2}C";
+
+        int pick4Matches2 = ColorRepeatedDigitsInCollections(
+            card.Row3Pick4Digits,
+            card.Row4Pick4Digits,
+            Colors.LightBlue);
+        card.Pick4MatchesRow3Row4 = $"{pick4Matches2}C";
+
+        ColorRepeatedDigitInRow4(card);
+    }
+
+    private static int ColorRepeatedDigitsInCollections(
+        ObservableCollection<DigitVM> collection1,
+        ObservableCollection<DigitVM> collection2,
+        Color highlightColor)
+    {
+        var values1 = collection1.Select(d => d.Value)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .ToList();
+        var values2 = collection2.Select(d => d.Value)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .ToList();
+
+        var repeatedValues = values1.Intersect(values2).ToList();
+        int matchCount = repeatedValues.Count;
+
+        ColorRepeatedDigits(collection1, repeatedValues, highlightColor);
+        ColorRepeatedDigits(collection2, repeatedValues, highlightColor);
+
+        return matchCount;
+    }
+
+    private static void ColorRepeatedDigits(
+        ObservableCollection<DigitVM> collection,
+        List<string> repeatedValues,
+        Color highlightColor)
+    {
+        foreach (var digitVM in collection)
+        {
+            if (repeatedValues.Contains(digitVM.Value))
+            {
+                digitVM.Bg = CreateFrozenBrush(highlightColor);
+            }
+            else
+            {
+                digitVM.Bg = CreateFrozenBrush(Colors.White);
+            }
+        }
+    }
+
+    private static void ColorRepeatedDigitInRow4(ThirdAnalysisCardVM card)
+    {
+        var pick3Digits = card.Row4Pick3Digits.Select(d => d.Value).ToList();
+        var pick4Digits = card.Row4Pick4Digits.Select(d => d.Value).ToList();
+
+        var repeatedDigits = pick3Digits.Intersect(pick4Digits).ToList();
+        if (repeatedDigits.Count != 1)
+        {
+            return;
+        }
+
+        string repeatedDigit = repeatedDigits[0];
+        var nextPick3Digits = card.Row4NextPick3Digits.Select(d => d.Value).ToList();
+
+        if (!nextPick3Digits.Contains(repeatedDigit))
+        {
+            return;
+        }
+
+        foreach (var digitVM in card.Row4Pick3Digits)
+        {
+            if (digitVM.Value == repeatedDigit)
+            {
+                digitVM.Bg = CreateFrozenBrush(Colors.LightBlue);
+            }
+        }
+
+        foreach (var digitVM in card.Row4Pick4Digits)
+        {
+            if (digitVM.Value == repeatedDigit)
+            {
+                digitVM.Bg = CreateFrozenBrush(Colors.LightBlue);
+            }
+        }
+
+        foreach (var digitVM in card.Row4NextPick3Digits)
+        {
+            if (digitVM.Value == repeatedDigit)
+            {
+                digitVM.Bg = CreateFrozenBrush(Colors.LightBlue);
+            }
+        }
+    }
+
     private void PositionAnalysisButton_Click(object sender, RoutedEventArgs e)
     {
         // TODO: Implementar navegación al análisis de posición
@@ -1411,10 +1441,289 @@ public partial class ThirdAnalysisOption1 : Window
             MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
+    private void analysisButton1(object sender, RoutedEventArgs e)
+    {
+    }
+
     private void ThirdAnalysisButton_Click(object sender, RoutedEventArgs e)
     {
         // TODO: Implementar navegación al tercer análisis
         MessageBox.Show("Funcionalidad del tercer análisis pendiente.", "Información", 
             MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+    
+    private void UpdateResultsCounter()
+    {
+        ResultsCounter.Text = $"Resultado: {_currentIndex + 1} de {SearchCards.Count}";
+    }
+
+    private void UpdateNavigationButtons()
+    {
+        if (PreviousButton != null)
+        {
+            PreviousButton.IsEnabled = _currentIndex > 0;
+        }
+        
+        if (NextButton != null)
+        {
+            NextButton.IsEnabled = _currentIndex < SearchCards.Count - 1;
+        }
+    }
+
+    private void UpdateSearchCardUI()
+    {
+        if (CurrentSearchCard == null) 
+        {
+            Console.WriteLine("UpdateSearchCardUI: CurrentSearchCard es null");
+            return;
+        }
+
+        try
+        {
+            Console.WriteLine($"UpdateSearchCardUI: Actualizando tarjeta {_currentIndex + 1} de {SearchCards.Count}");
+            
+            // Actualizar los TextBlocks de fechas
+            SearchRow1DateText.Text = CurrentSearchCard.Row1DateText;
+            SearchRow1DrawIcon.Text = CurrentSearchCard.Row1DrawIcon;
+            SearchRow2DateText.Text = CurrentSearchCard.Row2DateText;
+            SearchRow2DrawIcon.Text = CurrentSearchCard.Row2DrawIcon;
+            SearchRow3DateText.Text = CurrentSearchCard.Row3DateText;
+            SearchRow3DrawIcon.Text = CurrentSearchCard.Row3DrawIcon;
+            SearchRow4DateText.Text = CurrentSearchCard.Row4DateText;
+            SearchRow4DrawIcon.Text = CurrentSearchCard.Row4DrawIcon;
+
+            Console.WriteLine("UpdateSearchCardUI: Fechas actualizadas");
+
+            // ACTUALIZAR LOS DÍGITOS DE CADA FILA
+            SearchRow1Pick3Items.ItemsSource = null; // Limpiar primero para forzar actualización
+            SearchRow1Pick3Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row1Pick3Digits);
+            
+            SearchRow1Pick4Items.ItemsSource = null;
+            SearchRow1Pick4Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row1Pick4Digits);
+            
+            SearchRow1NextPick3Items.ItemsSource = null;
+            SearchRow1NextPick3Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row1NextPick3Digits);
+            
+            SearchRow1CodingItems.ItemsSource = null;
+            SearchRow1CodingItems.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row1CodingDigits);
+            
+            SearchRow2Pick3Items.ItemsSource = null;
+            SearchRow2Pick3Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row2Pick3Digits);
+            
+            SearchRow2Pick4Items.ItemsSource = null;
+            SearchRow2Pick4Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row2Pick4Digits);
+            
+            SearchRow2NextPick3Items.ItemsSource = null;
+            SearchRow2NextPick3Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row2NextPick3Digits);
+            
+            SearchRow2CodingItems.ItemsSource = null;
+            SearchRow2CodingItems.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row2CodingDigits);
+            
+            SearchRow3Pick3Items.ItemsSource = null;
+            SearchRow3Pick3Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row3Pick3Digits);
+            
+            SearchRow3Pick4Items.ItemsSource = null;
+            SearchRow3Pick4Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row3Pick4Digits);
+            
+            SearchRow3NextPick3Items.ItemsSource = null;
+            SearchRow3NextPick3Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row3NextPick3Digits);
+            
+            SearchRow3CodingItems.ItemsSource = null;
+            SearchRow3CodingItems.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row3CodingDigits);
+            
+            SearchRow4Pick3Items.ItemsSource = null;
+            SearchRow4Pick3Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row4Pick3Digits);
+            
+            SearchRow4Pick4Items.ItemsSource = null;
+            SearchRow4Pick4Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row4Pick4Digits);
+            
+            SearchRow4NextPick3Items.ItemsSource = null;
+            SearchRow4NextPick3Items.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row4NextPick3Digits);
+            
+            SearchRow4CodingItems.ItemsSource = null;
+            SearchRow4CodingItems.ItemsSource = CopyDigitCollection(CurrentSearchCard.Row4CodingDigits);
+            
+            Console.WriteLine("UpdateSearchCardUI: Dígitos actualizados");
+
+            // ACTUALIZAR CONTADORES
+            SearchPick4MatchesRow1Row2.Text = CurrentSearchCard.Pick4MatchesRow1Row2 ?? "0C";
+            SearchCodingMatchesRow1Row2.Text = CurrentSearchCard.CodingMatchesRow1Row2 ?? "0C";
+            SearchPick4MatchesRow3Row4.Text = CurrentSearchCard.Pick4MatchesRow3Row4 ?? "0C";
+            SearchCodingMatchesRow3Row4.Text = CurrentSearchCard.CodingMatchesRow3Row4 ?? "0C";
+            
+            // Forzar actualización de la UI antes de dibujar las líneas
+            this.UpdateLayout();
+            
+            // Dar tiempo para que los ItemsControls generen sus contenedores
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                // Esperar un ciclo adicional para asegurar que todo está renderizado
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    CreateSearchCardConnectingLines();
+                }), DispatcherPriority.Render);
+                
+            }), DispatcherPriority.Loaded);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error en UpdateSearchCardUI: {ex.Message}");
+            Console.WriteLine($"StackTrace: {ex.StackTrace}");
+        }
+    }
+
+    private void CreateSearchCardConnectingLines()
+    {
+        try
+        {
+            // Buscar el contenedor principal de la tarjeta de búsqueda
+            var searchCard = SearchCardContainer;
+            if (searchCard == null)
+            {
+                Console.WriteLine("SearchCardContainer no encontrado");
+                return;
+            }
+            
+            var row1Pick3Items = FindVisualChild<ItemsControl>(searchCard, "SearchRow1Pick3Items");
+            var row1NextPick3Items = FindVisualChild<ItemsControl>(searchCard, "SearchRow1NextPick3Items");
+            var row2Pick3Items = FindVisualChild<ItemsControl>(searchCard, "SearchRow2Pick3Items");
+            var row2NextPick3Items = FindVisualChild<ItemsControl>(searchCard, "SearchRow2NextPick3Items");
+            var row3Pick3Items = FindVisualChild<ItemsControl>(searchCard, "SearchRow3Pick3Items");
+            var row3NextPick3Items = FindVisualChild<ItemsControl>(searchCard, "SearchRow3NextPick3Items");
+            var row3Pick4Items = FindVisualChild<ItemsControl>(searchCard, "SearchRow3Pick4Items");
+            var row4Pick3Items = FindVisualChild<ItemsControl>(searchCard, "SearchRow4Pick3Items");
+            var row4NextPick3Items = FindVisualChild<ItemsControl>(searchCard, "SearchRow4NextPick3Items");
+            var row4Pick4Items = FindVisualChild<ItemsControl>(searchCard, "SearchRow4Pick4Items");
+            var pick3LinksCanvas = FindVisualChild<Canvas>(searchCard, "SearchPick3LinksCanvas");
+            var nextPick3LinksCanvas = FindVisualChild<Canvas>(searchCard, "SearchNextPick3LinksCanvas");
+            var pick3Row3ToPick4Row4LinksCanvas = FindVisualChild<Canvas>(searchCard, "SearchPick3Row3ToPick4Row4LinksCanvas");
+            var pick3Row4ToPick4Row3LinksCanvas = FindVisualChild<Canvas>(searchCard, "SearchPick3Row4ToPick4Row3LinksCanvas");
+
+            if (row1Pick3Items == null || row2Pick3Items == null || 
+                row1NextPick3Items == null || row2NextPick3Items == null ||
+                row3Pick3Items == null || row4Pick3Items == null ||
+                row3NextPick3Items == null || row4NextPick3Items == null ||
+                row3Pick4Items == null || row4Pick4Items == null ||
+                pick3LinksCanvas == null || nextPick3LinksCanvas == null ||
+                pick3Row3ToPick4Row4LinksCanvas == null || pick3Row4ToPick4Row3LinksCanvas == null)
+            {
+                return;
+            }
+
+            // Limpiar todos los canvas
+            pick3LinksCanvas.Children.Clear();
+            nextPick3LinksCanvas.Children.Clear();
+            pick3Row3ToPick4Row4LinksCanvas.Children.Clear();
+            pick3Row4ToPick4Row3LinksCanvas.Children.Clear();
+
+            // Conectar Pick3: Fila 1 con Fila 2
+            ConnectPick3Digits(row1Pick3Items, row2Pick3Items, pick3LinksCanvas);
+            // Conectar NextPick3: Fila 1 con Fila 2
+            ConnectPick3Digits(row1NextPick3Items, row2NextPick3Items, nextPick3LinksCanvas);
+            // Conectar Pick3: Fila 3 con Fila 4
+            ConnectPick3Digits(row3Pick3Items, row4Pick3Items, pick3LinksCanvas);
+            // Conectar NextPick3: Fila 3 con Fila 4
+            ConnectPick3Digits(row3NextPick3Items, row4NextPick3Items, nextPick3LinksCanvas);
+            
+
+
+            // Conectar Pick3 de fila 3 con Pick4 de fila 4
+            ConnectPick3ToPick4Digits(row3Pick3Items, row4Pick4Items, pick3Row3ToPick4Row4LinksCanvas);
+            ConnectPick3ToPick4Digits(row4Pick3Items, row3Pick4Items, pick3Row4ToPick4Row3LinksCanvas);
+            
+            Console.WriteLine("Líneas de búsqueda creadas exitosamente");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error creando líneas de búsqueda: {ex.Message}");
+            Console.WriteLine($"StackTrace: {ex.StackTrace}");
+        }
+    }
+
+    private ItemsControl FindItemsControlByBinding(DependencyObject parent, string bindingPath)
+    {
+        try
+        {
+            var itemsControls = FindVisualChildren<ItemsControl>(parent);
+            foreach (var itemsControl in itemsControls)
+            {
+                // Verificar si el ItemsControl tiene un binding en ItemsSource
+                var bindingExpression = BindingOperations.GetBindingExpression(itemsControl, ItemsControl.ItemsSourceProperty);
+                if (bindingExpression != null && bindingExpression.ParentBinding != null)
+                {
+                    var path = bindingExpression.ParentBinding.Path?.Path;
+                    if (path == bindingPath)
+                    {
+                        return itemsControl;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error buscando ItemsControl por binding {bindingPath}: {ex.Message}");
+        }
+        
+        return null;
+    }
+
+    private T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        if (parent == null) return null;
+
+        try
+        {
+            int childrenCount = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < childrenCount; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                
+                // Buscar por tipo
+                if (child is T result)
+                {
+                    return result;
+                }
+                
+                // Buscar recursivamente
+                var foundChild = FindVisualChild<T>(child);
+                if (foundChild != null) return foundChild;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error en FindVisualChild: {ex.Message}");
+        }
+        
+        return null;
+    }
+
+    private void PreviousButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentIndex > 0)
+        {
+            _currentIndex--;
+            CurrentSearchCard = SearchCards[_currentIndex];
+            UpdateResultsCounter();
+            UpdateNavigationButtons();
+        }
+    }
+
+    private void NextButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentIndex < SearchCards.Count - 1)
+        {
+            _currentIndex++;
+            CurrentSearchCard = SearchCards[_currentIndex];
+            UpdateResultsCounter();
+            UpdateNavigationButtons();
+        }
+    }
+
+    private void SearchPositionAnalysisButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentSearchCard != null)
+        {
+
+        }
     }
 }

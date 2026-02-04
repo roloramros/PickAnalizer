@@ -20,7 +20,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private const string SupabaseUrl = "https://lmhyfgagksvojfkbnygx.supabase.co";
     private const string SupabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtaHlmZ2Fna3N2b2pma2JueWd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA0MjA4MzksImV4cCI6MjA2NTk5NjgzOX0.bD-j6tXajDumkB7cuck_9aNMGkrAdnAJLzQACoRYaJo";
 
-    private const int PageSize = 10;
+    private const int PageSize = 12;
     private int _pageIndex = 0;
     private int _totalDates = 0;
     private int _totalPages = 1;

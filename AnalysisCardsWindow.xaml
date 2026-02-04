@@ -1,7 +1,7 @@
 <Window x:Class="FloridaLotteryApp.AnalysisCardsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Resultados del análisis"
+        Title="R1esultados del análisis"
         Height="900" Width="900"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize">

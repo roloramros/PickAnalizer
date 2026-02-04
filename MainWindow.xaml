@@ -4,7 +4,7 @@
         Title="Florida Lottery App"
         ResizeMode="NoResize"
         Height="720"
-        Width="1460">
+        Width="1500">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
     </Window.Resources>
@@ -79,7 +79,7 @@
 
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Width="270"
+                        <Border Width="230"
                                 CornerRadius="14"
                                 BorderBrush="#22000000"
                                 BorderThickness="1"
@@ -122,20 +122,11 @@
                                     <!-- Pick3 -->
                                     <StackPanel Grid.Column="0">
                                     <TextBlock Text="Pick 3" Opacity="0.7" HorizontalAlignment="Center" FontSize="11"/>
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,4,0,0">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,5,0,0">
                                             <Border Width="48" Height="48" CornerRadius="24"
                                                     BorderThickness="2" BorderBrush="Black">
                                                 <TextBlock Text="{Binding P3_M_Number}"
                                                         FontSize="14" FontWeight="Bold"
-                                                        HorizontalAlignment="Center"
-                                                        VerticalAlignment="Center"/>
-                                            </Border>
-
-                                            <Border Width="26" Height="26" CornerRadius="13"
-                                                    BorderThickness="2" BorderBrush="Black"
-                                                    Margin="8,16,0,0">
-                                                <TextBlock Text="{Binding P3_M_FB}"
-                                                        FontSize="10" FontWeight="Bold"
                                                         HorizontalAlignment="Center"
                                                         VerticalAlignment="Center"/>
                                             </Border>
@@ -160,15 +151,6 @@
                                                     Margin="8,0,0,0">
                                                 <TextBlock Text="{Binding P4_M_Last2}"
                                                         FontSize="14" FontWeight="Bold"
-                                                        HorizontalAlignment="Center"
-                                                        VerticalAlignment="Center"/>
-                                            </Border>
-
-                                            <Border Width="26" Height="26" CornerRadius="13"
-                                                    BorderThickness="2" BorderBrush="Black"
-                                                    Margin="8,16,0,0">
-                                                <TextBlock Text="{Binding P4_M_FB}"
-                                                        FontSize="10" FontWeight="Bold"
                                                         HorizontalAlignment="Center"
                                                         VerticalAlignment="Center"/>
                                             </Border>
@@ -219,15 +201,6 @@
                                                         HorizontalAlignment="Center"
                                                         VerticalAlignment="Center"/>
                                             </Border>
-
-                                            <Border Width="26" Height="26" CornerRadius="13"
-                                                    BorderThickness="2" BorderBrush="Black"
-                                                    Margin="8,16,0,0">
-                                                <TextBlock Text="{Binding P3_E_FB}"
-                                                        FontSize="10" FontWeight="Bold"
-                                                        HorizontalAlignment="Center"
-                                                        VerticalAlignment="Center"/>
-                                            </Border>
                                         </StackPanel>
                                     </StackPanel>
 
@@ -248,15 +221,6 @@
                                                     Margin="8,0,0,0">
                                                 <TextBlock Text="{Binding P4_E_Last2}"
                                                         FontSize="14" FontWeight="Bold"
-                                                        HorizontalAlignment="Center"
-                                                        VerticalAlignment="Center"/>
-                                            </Border>
-
-                                            <Border Width="26" Height="26" CornerRadius="13"
-                                                    BorderThickness="2" BorderBrush="Black"
-                                                    Margin="8,16,0,0">
-                                                <TextBlock Text="{Binding P4_E_FB}"
-                                                        FontSize="10" FontWeight="Bold"
                                                         HorizontalAlignment="Center"
                                                         VerticalAlignment="Center"/>
                                             </Border>
